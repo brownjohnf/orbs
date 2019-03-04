@@ -1,0 +1,16 @@
+---
+version: 2.1
+
+orbs:
+  docker:
+
+workflows:
+  test:
+    jobs:
+      - docker/build-test-push:
+          namespace: foobar
+          project: alpine
+          test_command: vim --version | grep NVIM
+          push: false
+          path: test
+

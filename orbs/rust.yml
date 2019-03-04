@@ -1,0 +1,31 @@
+---
+version: 2.1
+
+description: Build and test rust projects
+
+executors:
+  docker:
+    parameters:
+      version:
+        type: string
+        default: "latest"
+    docker:
+      - image: library/rust:<<parameters.version>>
+
+jobs:
+  build:
+    executor: docker
+    parameters:
+      version:
+        type: string
+        default: "latest"
+    steps:
+      - run:
+          name: Install deps
+          command: |
+            apt-get update
+            apt-get install -y git
+      - checkout
+      - setup_remote_docker
+      - run: cargo build
+

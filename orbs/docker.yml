@@ -1,0 +1,130 @@
+---
+version: 2.1
+
+description: Build, test and push a Docker image
+
+jobs:
+  build-test-push:
+    parameters:
+      registry:
+        description: Registry domain to push to
+        type: string
+        default: index.docker.io
+      namespace:
+        description: Registry namespace
+        type: string
+      project:
+        description: Name of image
+        type: string
+      test_command:
+        description: Name of image
+        type: string
+        default: make test
+      path:
+        description: Path to the Dockerfile context for the build
+        type: string
+        default: .
+      push:
+        description: Whether or not to attempt to push the image
+        type: boolean
+        default: true
+    executor: docker
+    steps:
+      - run: apk add --no-cache git openssh
+      - checkout
+      - setup_remote_docker
+      - login:
+          push: <<parameters.push>>
+      - build:
+          image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+          path: <<parameters.path>>
+      - test:
+          image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+          test_command: <<parameters.test_command>>
+          path: <<parameters.path>>
+      - push:
+          image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+          push: <<parameters.push>>
+commands:
+  login:
+    parameters:
+      push:
+        type: boolean
+    steps:
+      - run:
+          name: Login to Docker Registry
+          command: |
+            [[ "<<parameters.push>>" == "true" ]] || exit 0
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+
+  build:
+    parameters:
+      image:
+        type: string
+      path:
+        type: string
+    steps:
+      - run:
+          name: Build main target
+          command: |
+            docker build \
+              -t <<parameters.image>>:${CIRCLE_SHA1} \
+              --target main \
+              <<parameters.path>>
+  test:
+    parameters:
+      image:
+        type: string
+      test_command:
+        type: string
+      path:
+        type: string
+    steps:
+      - run:
+          name: Build test target
+          command: |
+            docker build \
+              -t <<parameters.image>>:test \
+              --target test \
+              <<parameters.path>>
+      - run:
+          name: Test
+          command: |
+            docker run -it --rm \
+              --entrypoint /bin/sh \
+              <<parameters.image>>:test \
+              -c '<<parameters.test_command>>'
+  push:
+    parameters:
+      image:
+        type: string
+      push:
+        type: boolean
+    steps:
+      - run:
+          name: Push
+          command: |
+            # Abort if we don't want to push
+            [[ "<<parameters.push>>" == "true" ]] || exit 0
+
+            echo docker push <<parameters.image>>:${CIRCLE_SHA1}
+            docker push <<parameters.image>>:${CIRCLE_SHA1} > /dev/null
+
+            for tag in ${CIRCLE_BUILD_NUM} ${CIRCLE_BRANCH}; do
+              docker tag \
+                <<parameters.image>>:${CIRCLE_SHA1} \
+                <<parameters.image>>:${tag}
+
+              echo docker push <<parameters.image>>:${tag}
+              docker push <<parameters.image>>:${tag} > /dev/null
+            done
+
+executors:
+  docker:
+    parameters:
+      version:
+        type: string
+        default: "latest"
+    docker:
+      - image: library/docker:<<parameters.version>>
+

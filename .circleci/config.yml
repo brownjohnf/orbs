@@ -1,0 +1,75 @@
+---
+version: 2.1
+
+orbs:
+  # This is an orb maintained by circle to help with publishing
+  orb-tools: circleci/orb-tools@2.0.0
+
+workflows:
+  default:
+    jobs:
+      - orb-tools/publish:
+          name: publish_docker
+          orb-path: orbs/docker.yml
+          orb-ref: brownjohnf/docker@dev:${CIRCLE_SHA1}
+          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+          validate: true
+      - orb-tools/publish:
+          name: publish_rust
+          orb-path: orbs/rust.yml
+          orb-ref: brownjohnf/rust@dev:${CIRCLE_SHA1}
+          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+          validate: true
+      - test_docker:
+          requires:
+            - publish_docker
+      - orb-tools/increment:
+          orb-path: orbs/docker.yml
+          orb-ref: brownjohnf/docker
+          segment: patch
+          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+          validate: true
+          filters:
+            branches:
+              only: master
+          requires:
+            - test_docker
+      - orb-tools/increment:
+          orb-path: orbs/rust.yml
+          orb-ref: brownjohnf/rust
+          segment: patch
+          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+          validate: true
+          filters:
+            branches:
+              only: master
+          requires:
+            - publish_rust
+
+jobs:
+  test_docker:
+    docker:
+      - image: circleci/circleci-cli:alpine
+    steps:
+      - checkout
+      - run:
+          name: Test the orb locally
+          command: |
+            apk add --no-cache curl openssh
+
+            curl -L --silent \
+              https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64 \
+              > /usr/local/bin/yq
+            chmod +x /usr/local/bin/yq
+
+            # Update the template with the orb that we just published as
+            # dev
+            yq write test/config.yml.template orbs.docker brownjohnf/docker@dev:${CIRCLE_SHA1} \
+              > test/config.yml
+
+            circleci config process test/config.yml > test/.config.yml
+
+            circleci local execute \
+              -c test/.config.yml \
+              --job docker/build-test-push
+
