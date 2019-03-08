@@ -4,72 +4,302 @@ version: 2.1
 orbs:
   # This is an orb maintained by circle to help with publishing
   orb-tools: circleci/orb-tools@2.0.0
+  extract-orb:
+    version: 2.1
+    description: Extract an orb from a circle config using yq
+    docker:
+      - image: library/alpine:latest
+    jobs:
+      default:
+        executor: docker
+        parameters:
+          orb:
+            description: Name of orb to extract
+            type: string
+        steps:
+          - run: apk add --no-cache git openssh wget
+          - run:
+              name: Install yq
+              command: |
+                wget -O /usr/local/bin/yq \
+                  https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64
+                chmod +x /usr/local/bin/yq
+          - checkout
+          - run: |
+              mkdir -p /tmp/orbs
+              yq read .circleci/config.yml 'orbs.<<parameters.orb>>' \
+                > /tmp/orbs/<<parameters.orb>>.yml
+          - persist_to_workspace:
+              root: /tmp/orbs
+              paths:
+                - <<parameters.orb>>.yml
+    executors:
+      docker:
+        docker:
+          - image: library/alpine:latest
+
+  docker:
+    version: 2.1
+    description: Build, test and push a Docker image
+    jobs:
+      build-test-push:
+        parameters:
+          registry:
+            description: Registry domain to push to
+            type: string
+            default: index.docker.io
+          namespace:
+            description: Registry namespace
+            type: string
+          project:
+            description: Name of image
+            type: string
+          test_command:
+            description: Name of image
+            type: string
+            default: make test
+          path:
+            description: Path to the Dockerfile context for the build
+            type: string
+            default: .
+          push:
+            description: Whether or not to attempt to push the image
+            type: boolean
+            default: true
+        executor: docker
+        steps:
+          - run: apk add --no-cache git openssh
+          - checkout
+          - setup_remote_docker
+          - login:
+              push: <<parameters.push>>
+          - build:
+              image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+              path: <<parameters.path>>
+          - test:
+              image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+              test_command: <<parameters.test_command>>
+              path: <<parameters.path>>
+          - push:
+              image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+              push: <<parameters.push>>
+    commands:
+      login:
+        parameters:
+          push:
+            type: boolean
+        steps:
+          - run:
+              name: Login to Docker Registry
+              command: |
+                [[ "<<parameters.push>>" == "true" ]] || exit 0
+                docker login -u $DOCKER_USER -p $DOCKER_PASS
+      build:
+        parameters:
+          image:
+            type: string
+          path:
+            type: string
+        steps:
+          - run:
+              name: Build main target
+              command: |
+                docker build \
+                  -t <<parameters.image>>:${CIRCLE_SHA1} \
+                  --target main \
+                  <<parameters.path>>
+      test:
+        parameters:
+          image:
+            type: string
+          test_command:
+            type: string
+          path:
+            type: string
+        steps:
+          - run:
+              name: Build test target
+              command: |
+                docker build \
+                  -t <<parameters.image>>:test \
+                  --target test \
+                  <<parameters.path>>
+          - run:
+              name: Test
+              command: |
+                docker run -it --rm \
+                  --entrypoint /bin/sh \
+                  <<parameters.image>>:test \
+                  -c '<<parameters.test_command>>'
+      push:
+        parameters:
+          image:
+            type: string
+          push:
+            type: boolean
+        steps:
+          - run:
+              name: Push
+              command: |
+                # Abort if we don't want to push
+                [[ "<<parameters.push>>" == "true" ]] || exit 0
+
+                echo docker push <<parameters.image>>:${CIRCLE_SHA1}
+                docker push <<parameters.image>>:${CIRCLE_SHA1} > /dev/null
+
+                for tag in ${CIRCLE_BUILD_NUM} ${CIRCLE_BRANCH}; do
+                  docker tag \
+                    <<parameters.image>>:${CIRCLE_SHA1} \
+                    <<parameters.image>>:${tag}
+
+                  echo docker push <<parameters.image>>:${tag}
+                  docker push <<parameters.image>>:${tag} > /dev/null
+                done
+    executors:
+      docker:
+        parameters:
+          version:
+            type: string
+            default: "latest"
+        docker:
+          - image: library/docker:<<parameters.version>>
+  rust:
+    version: 2.1
+    description: Build and test rust projects
+    executors:
+      docker:
+        parameters:
+          version:
+            type: string
+            default: "latest"
+        docker:
+          - image: library/rust:<<parameters.version>>
+    jobs:
+      build:
+        executor: docker
+        parameters:
+          version:
+            type: string
+            default: "latest"
+          path:
+            type: string
+            default: "latest"
+          release:
+            type: boolean
+            default: false
+        steps:
+          - install_deps
+          - checkout
+          - run:
+              name: Build
+              command: |
+                cd <<parameters.path>>
+                if [ "<<parameters.release>>" == "true" ]; then
+                  cargo build --release
+                else
+                  cargo build
+                fi
+      test:
+        executor: docker
+        parameters:
+          version:
+            type: string
+            default: "latest"
+          path:
+            type: string
+            default: "latest"
+        steps:
+          - install_deps
+          - checkout
+          - run:
+              name: Run tests
+              command: |
+                cd <<parameters.path>>
+                cargo test
+    commands:
+      install_deps:
+        steps:
+          - run:
+              name: Install deps
+              command: |
+                apt-get update
+                apt-get install -y git
+
+# Aliases  #########################################################
+
+publish: &publish
+  name: publish
+  publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+  validate: true
+  checkout: false
+  attach-workspace: true
+  requires:
+    - extract-orb/default
+
+release: &release
+  name: release
+  publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
+  validate: true
+  checkout: false
+  attach-workspace: true
+  filters:
+    branches:
+      only: master
+  requires:
+    - publish
+
+# Actual tests #########################################################
 
 workflows:
-  default:
+  docker:
     jobs:
-      - orb-tools/publish:
-          name: publish_docker
-          orb-path: orbs/docker.yml
-          orb-ref: brownjohnf/docker@dev:${CIRCLE_SHA1}
-          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
-          validate: true
-      - orb-tools/publish:
-          name: publish_rust
-          orb-path: orbs/rust.yml
-          orb-ref: brownjohnf/rust@dev:${CIRCLE_SHA1}
-          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
-          validate: true
-      - test_docker:
+      - docker/build-test-push:
+          namespace: foobar
+          project: alpine
+          test_command: vim --version | grep VIM
+          push: false
+          path: test
+      - extract-orb/default:
+          orb: docker
           requires:
-            - publish_docker
+            - docker/build-test-push
+      - orb-tools/publish:
+          <<: *publish
+          name: publish
+          orb-path: docker.yml
+          orb-ref: brownjohnf/docker@dev:${CIRCLE_SHA1}
       - orb-tools/increment:
-          orb-path: orbs/docker.yml
+          <<: *release
+          orb-path: docker.yml
           orb-ref: brownjohnf/docker
           segment: patch
-          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
-          validate: true
-          filters:
-            branches:
-              only: master
+  rust:
+    jobs:
+      - rust/test:
+          name: test_test
+          path: test/rust
+      - rust/build:
+          name: test_build_debug
+          release: false
+          path: test/rust
+      - rust/build:
+          name: test_build_release
+          release: false
+          path: test/rust
+      - extract-orb/default:
+          orb: rust
           requires:
-            - test_docker
+            - test_test
+            - test_build_debug
+            - test_build_release
+      - orb-tools/publish:
+          <<: *publish
+          name: publish
+          orb-path: rust.yml
+          orb-ref: brownjohnf/rust@dev:${CIRCLE_BRANCH}
       - orb-tools/increment:
-          orb-path: orbs/rust.yml
+          <<: *release
+          orb-path: rust.yml
           orb-ref: brownjohnf/rust
           segment: patch
-          publish-token-variable: "$CIRCLECI_DEV_API_TOKEN"
-          validate: true
-          filters:
-            branches:
-              only: master
-          requires:
-            - publish_rust
-
-jobs:
-  test_docker:
-    docker:
-      - image: circleci/circleci-cli:alpine
-    steps:
-      - checkout
-      - run:
-          name: Test the orb locally
-          command: |
-            apk add --no-cache curl openssh
-
-            curl -L --silent \
-              https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64 \
-              > /usr/local/bin/yq
-            chmod +x /usr/local/bin/yq
-
-            # Update the template with the orb that we just published as
-            # dev
-            yq write test/config.yml.template orbs.docker brownjohnf/docker@dev:${CIRCLE_SHA1} \
-              > test/config.yml
-
-            circleci config process test/config.yml > test/.config.yml
-
-            circleci local execute \
-              -c test/.config.yml \
-              --job docker/build-test-push
 

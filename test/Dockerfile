@@ -1,6 +1,6 @@
 FROM library/alpine:latest as build
 
-RUN echo This is the build stage
+RUN apk add --no-cache vim
 
 FROM build as main
 

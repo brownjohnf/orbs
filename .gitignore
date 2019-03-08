@@ -2,3 +2,4 @@
 *.swo
 *.swp
 .circleci/.config.yml
+test/rust/target
