@@ -7,8 +7,6 @@ orbs:
   extract-orb:
     version: 2.1
     description: Extract an orb from a circle config using yq
-    docker:
-      - image: library/alpine:latest
     jobs:
       default:
         executor: docker
@@ -17,13 +15,6 @@ orbs:
             description: Name of orb to extract
             type: string
         steps:
-          - run: apk add --no-cache git openssh wget
-          - run:
-              name: Install yq
-              command: |
-                wget -O /usr/local/bin/yq \
-                  https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64
-                chmod +x /usr/local/bin/yq
           - checkout
           - run: |
               mkdir -p /tmp/orbs
@@ -36,13 +27,22 @@ orbs:
     executors:
       docker:
         docker:
-          - image: library/alpine:latest
+          - image: brownjohnf/alpine:master
 
   docker:
     version: 2.1
     description: Build, test and push a Docker image
+    executors:
+      docker:
+        parameters:
+          version:
+            type: string
+            default: master
+        docker:
+          - image: brownjohnf/docker:<<parameters.version>>
     jobs:
       build-test-push:
+        executor: docker
         parameters:
           registry:
             description: Registry domain to push to
@@ -66,7 +66,6 @@ orbs:
             description: Whether or not to attempt to push the image
             type: boolean
             default: true
-        executor: docker
         steps:
           - run: apk add --no-cache git openssh
           - checkout
@@ -155,14 +154,6 @@ orbs:
                   echo docker push <<parameters.image>>:${tag}
                   docker push <<parameters.image>>:${tag} > /dev/null
                 done
-    executors:
-      docker:
-        parameters:
-          version:
-            type: string
-            default: "latest"
-        docker:
-          - image: library/docker:<<parameters.version>>
   rust:
     version: 2.1
     description: Build and test rust projects
