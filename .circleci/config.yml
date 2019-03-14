@@ -174,7 +174,7 @@ orbs:
             default: "latest"
           path:
             type: string
-            default: "latest"
+            default: .
           release:
             type: boolean
             default: false
