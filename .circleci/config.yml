@@ -198,7 +198,7 @@ orbs:
             default: "latest"
           path:
             type: string
-            default: "latest"
+            default: .
         steps:
           - install_deps
           - checkout
