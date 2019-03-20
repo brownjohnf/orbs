@@ -181,6 +181,10 @@ orbs:
         steps:
           - install_deps
           - checkout
+          - restore_cache: &rust_restore_cache
+              keys:
+                - cargo-cache-v1-{{ arch }}-{{ checksum "<<parameters.path>>/Cargo.lock" }}
+                - cargo-cache-v1-{{ arch }}
           - run:
               name: Build
               command: |
@@ -190,6 +194,10 @@ orbs:
                 else
                   cargo build
                 fi
+          - save_cache: &rust_save_cache
+              key: cargo-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "<<parameters.path>>/Cargo.lock" }}
+              paths:
+                - <<parameters.path>>/target
       test:
         executor: docker
         parameters:
@@ -202,11 +210,13 @@ orbs:
         steps:
           - install_deps
           - checkout
+          - restore_cache: *rust_restore_cache
           - run:
               name: Run tests
               command: |
                 cd <<parameters.path>>
                 cargo test
+          - save_cache: *rust_save_cache
     commands:
       install_deps:
         steps:
@@ -277,12 +287,15 @@ workflows:
           name: test_build_release
           release: false
           path: test/rust
+      - rust_test_cache:
+          requires:
+            - test_build_release
       - extract-orb/default:
           orb: rust
           requires:
             - test_test
             - test_build_debug
-            - test_build_release
+            - rust_test_cache
       - orb-tools/publish:
           <<: *publish
           name: publish
@@ -293,4 +306,20 @@ workflows:
           orb-path: rust.yml
           orb-ref: brownjohnf/rust
           segment: patch
+
+jobs:
+  rust_test_cache:
+    docker:
+      - image: brownjohnf/alpine:master
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "test/rust/Cargo.lock" }}
+      - run: |
+          set -x
+          ls -lah
+          ls -lah test
+          ls -lah test/rust
+          ls -lah test/rust/target
 
