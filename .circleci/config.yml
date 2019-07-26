@@ -72,6 +72,8 @@ orbs:
           - setup_remote_docker
           - login:
               push: <<parameters.push>>
+          - pull:
+              image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
           - build:
               image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
               path: <<parameters.path>>
@@ -93,6 +95,17 @@ orbs:
               command: |
                 [[ "<<parameters.push>>" == "true" ]] || exit 0
                 docker login -u $DOCKER_USER -p $DOCKER_PASS
+      pull:
+        parameters:
+          image:
+            type: string
+        steps:
+          - run:
+              name: Pull image for caching purposes (to speed up builds)
+              command: |
+                docker pull <<parameters.image>>:${CIRCLE_SHA1} \
+                || docker pull <<parameters.image>>:${CIRCLE_BRANCH} \
+                || docker pull <<parameters.image>>:master
       build:
         parameters:
           image:
