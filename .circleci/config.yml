@@ -197,7 +197,7 @@ orbs:
           - restore_cache: &rust_restore_cache
               keys:
                 - cargo-cache-v1-{{ arch }}-{{ checksum "<<parameters.path>>/Cargo.lock" }}
-                - cargo-cache-v1-{{ arch }}
+                - cargo-cache-v1-{{ arch }}-
           - run:
               name: Build
               command: |
@@ -208,7 +208,7 @@ orbs:
                   cargo build
                 fi
           - save_cache: &rust_save_cache
-              key: cargo-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "<<parameters.path>>/Cargo.lock" }}
+              key: cargo-cache-v1-{{ arch }}-{{ checksum "<<parameters.path>>/Cargo.lock" }}
               paths:
                 - <<parameters.path>>/target
       test:
@@ -279,7 +279,6 @@ workflows:
             - docker/build-test-push
       - orb-tools/publish:
           <<: *publish
-          name: publish
           orb-path: docker.yml
           orb-ref: brownjohnf/docker@dev:${CIRCLE_SHA1}
       - orb-tools/increment:
@@ -298,20 +297,19 @@ workflows:
           path: test/rust
       - rust/build:
           name: test_build_release
-          release: false
+          release: true
           path: test/rust
       - rust_test_cache:
           requires:
-            - test_build_release
+            - test_build_debug
       - extract-orb/default:
           orb: rust
           requires:
             - test_test
-            - test_build_debug
+            - test_build_release
             - rust_test_cache
       - orb-tools/publish:
           <<: *publish
-          name: publish
           orb-path: rust.yml
           orb-ref: brownjohnf/rust@dev:${CIRCLE_BRANCH}
       - orb-tools/increment:
@@ -328,7 +326,7 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-            - cargo-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "test/rust/Cargo.lock" }}
+            - cargo-cache-v1-{{ arch }}-{{ checksum "test/rust/Cargo.lock" }}
       - run: |
           set -x
           ls -lah
