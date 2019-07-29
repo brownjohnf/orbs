@@ -58,12 +58,23 @@ orbs:
             description: Name of image
             type: string
             default: make test
+          test_target:
+            description: >
+              Name of multi-stage build target to run tests against
+            type: string
+            default: test
           path:
             description: Path to the Dockerfile context for the build
             type: string
             default: .
           push:
             description: Whether or not to attempt to push the image
+            type: boolean
+            default: true
+          pull:
+            description: >
+              Whether or not to attempt to pull the image prior
+              to building
             type: boolean
             default: true
         steps:
@@ -74,12 +85,14 @@ orbs:
               push: <<parameters.push>>
           - pull:
               image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
+              pull: <<parameters.pull>>
           - build:
               image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
               path: <<parameters.path>>
           - test:
               image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
               test_command: <<parameters.test_command>>
+              test_target: <<parameters.test_target>>
               path: <<parameters.path>>
           - push:
               image: <<parameters.registry>>/<<parameters.namespace>>/<<parameters.project>>
@@ -99,10 +112,13 @@ orbs:
         parameters:
           image:
             type: string
+          pull:
+            type: boolean
         steps:
           - run:
               name: Pull image for caching purposes (to speed up builds)
               command: |
+                [[ "<<parameters.pull>>" == "true" ]] || exit 0
                 docker pull <<parameters.image>>:${CIRCLE_SHA1} \
                 || docker pull <<parameters.image>>:${CIRCLE_BRANCH} \
                 || docker pull <<parameters.image>>:master
@@ -126,6 +142,8 @@ orbs:
             type: string
           test_command:
             type: string
+          test_target:
+            type: string
           path:
             type: string
         steps:
@@ -134,7 +152,7 @@ orbs:
               command: |
                 docker build \
                   -t <<parameters.image>>:test \
-                  --target test \
+                  --target <<parameters.test_target>> \
                   <<parameters.path>>
           - run:
               name: Test
@@ -272,6 +290,7 @@ workflows:
           project: alpine
           test_command: vim --version | grep VIM
           push: false
+          pull: false
           path: test
       - extract-orb/default:
           orb: docker
