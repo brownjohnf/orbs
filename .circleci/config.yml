@@ -121,7 +121,8 @@ orbs:
                 [[ "<<parameters.pull>>" == "true" ]] || exit 0
                 docker pull <<parameters.image>>:${CIRCLE_SHA1} \
                 || docker pull <<parameters.image>>:${CIRCLE_BRANCH} \
-                || docker pull <<parameters.image>>:master
+                || docker pull <<parameters.image>>:master \
+                || true
       build:
         parameters:
           image:
